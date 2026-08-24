@@ -1,0 +1,55 @@
+========================================== 29 passed, 1 deselected in 0.16s ===========================================
+2026-08-23 20:58:02,774: CLI Report:
+
+Mutatest diagnostic summary
+===========================
+ - Source location: C:\Users\mrugv\OneDrive - Nae Comunicacions S.L\Escritorio\Universidad\Platzi\Codigo con IA\tests-codereview-ai\src\payments_svc
+ - Test commands: ['pytest', 'tests/', '-k', 'not test_canary_intentionally_fails']
+ - Mode: s
+ - Excluded files: []
+ - N locations input: 5
+ - Random seed: None
+
+Random sample details
+---------------------
+ - Total locations mutated: 5
+ - Total locations identified: 64
+ - Location sample coverage: 7.81 %
+
+
+Running time details
+--------------------
+ - Clean trial 1 run time: 0:00:01.642034
+ - Clean trial 2 run time: 0:00:01.091735
+ - Mutation trials total run time: 0:00:12.935148
+
+2026-08-23 20:58:02,775: Trial Summary Report:
+
+Overall mutation trial summary
+==============================
+ - DETECTED: 6
+ - SURVIVED: 4
+ - TOTAL RUNS: 10
+ - RUN DATETIME: 2026-08-23 20:58:02.774473
+
+2026-08-23 20:58:02,776: Detected mutations:
+
+DETECTED
+--------
+ - src\payments_svc\amounts.py: (l: 80, c: 4) - mutation from If_Statement to If_True
+ - src\payments_svc\amounts.py: (l: 80, c: 4) - mutation from If_Statement to If_False
+ - src\payments_svc\amounts.py: (l: 108, c: 7) - mutation from <class 'ast.LtE'> to <class 'ast.GtE'>
+ - src\payments_svc\amounts.py: (l: 108, c: 7) - mutation from <class 'ast.LtE'> to <class 'ast.NotEq'>
+ - src\payments_svc\amounts.py: (l: 108, c: 7) - mutation from <class 'ast.LtE'> to <class 'ast.Lt'>
+ - src\payments_svc\amounts.py: (l: 108, c: 7) - mutation from <class 'ast.LtE'> to <class 'ast.Gt'>
+
+2026-08-23 20:58:02,776: Timedout mutations:
+
+2026-08-23 20:58:02,777: Surviving mutations:
+
+SURVIVED
+--------
+ - src\payments_svc\amounts.py: (l: 59, c: 22) - mutation from <class 'ast.BitOr'> to <class 'ast.BitXor'>
+ - src\payments_svc\amounts.py: (l: 108, c: 7) - mutation from <class 'ast.LtE'> to <class 'ast.Eq'>
+ - src\payments_svc\amounts.py: (l: 135, c: 4) - mutation from If_Statement to If_False
+ - src\payments_svc\auth.py: (l: 33, c: 11) - mutation from <class 'ast.Eq'> to <class 'ast.Lt'>

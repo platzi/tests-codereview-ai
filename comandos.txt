@@ -1,0 +1,92 @@
+========================================
+COMANDOS - TESTS Y MUTATION TESTING
+Proyecto: payments-svc (tests-codereview-ai)
+========================================
+
+--- 1. Activar entorno virtual (PowerShell) ---
+.\venv\Scripts\Activate.ps1
+
+--- 2. Instalar dependencias ---
+pip install -e .
+
+NOTA: mutmut no corre en Windows nativo. Al ejecutarlo (mutmut run) el propio
+programa aborta con:
+"To run mutmut on Windows, please use the WSL."
+(issue oficial: https://github.com/boxed/mutmut/issues/397)
+Por eso se usa "mutatest" en su lugar (puro Python, corre sobre pytest,
+compatible con Windows).
+
+pip install mutatest setuptools
+
+NOTA: mutatest necesita "setuptools" en tiempo de ejecucion (mutatest/cli.py
+hace "from setuptools import find_packages") y Python 3.14 ya no lo trae
+preinstalado en el venv, por eso se instala aparte.
+
+--- 3. Correr los tests reales (unittest, forma verificada que funciona) ---
+$env:PYTHONPATH="src"; python -m unittest discover -s tests -v
+
+--- 4. Correr los tests con pytest ---
+NOTA: falla si tests_results.txt esta en la raiz del repo (UnicodeDecodeError,
+UTF-16). Mover o borrar ese archivo antes de correr pytest, o usar --ignore.
+
+pytest --ignore=tests_results.txt -v
+# o, apuntando solo a la carpeta de tests:
+pytest tests/ -v
+
+--- 5. Smoke test ---
+python scripts/smoke_test.py
+
+--- 6. Mutation testing con mutatest (alternativa a mutmut, compatible con Windows) ---
+
+IMPORTANTE - por que el comando basico falla con "BaselineTestException":
+tests/test_amounts.py incluye un test canario a proposito
+(CanaryDeliberateFailureTests.test_canary_intentionally_fails) que SIEMPRE
+falla, para comprobar que el runner reporta fallos. mutatest exige que la
+"clean trial" (corrida base sin mutaciones) termine en verde antes de
+empezar a mutar; como ese test canario falla, pytest devuelve codigo de
+salida distinto de 0 y mutatest aborta con:
+"mutatest.run.BaselineTestException: Clean trial does not pass"
+
+Solucion (sin tocar tests/test_amounts.py): excluir solo ese test del
+comando que le pasamos a mutatest con -k, dejando el resto intacto.
+
+IMPORTANTE - comillas en PowerShell: PowerShell NO usa \" para escapar
+comillas dentro de comillas dobles (eso es sintaxis de bash/sh). En
+PowerShell el backslash no es especial, asi que \" se pasa literal y
+mutatest recibe el argumento roto ("error: unrecognized arguments").
+La forma correcta en PowerShell es usar comillas SIMPLES para el valor
+de -k, dentro de las comillas DOBLES del argumento de mutatest:
+
+mutatest -s src/payments_svc -t "pytest tests/ -k 'not test_canary_intentionally_fails'"
+
+NOTA: usar el mismo cuidado que en el punto 4 (excluir/borrar tests_results.txt
+de la raiz) para que el comando de test no crashee y falsee los resultados.
+
+--- 7. Mutation testing con menos ubicaciones (trial rapido) ---
+mutatest -s src/payments_svc -t "pytest tests/ -k 'not test_canary_intentionally_fails'" -n 8
+
+--- 8. Mutation testing excluyendo un archivo puntual (ej. api.py) ---
+mutatest -s src/payments_svc -t "pytest tests/ -k 'not test_canary_intentionally_fails'" -e src/payments_svc/api.py
+
+--- 9. Ver todas las opciones de mutatest ---
+mutatest --help
+
+========================================
+NOTA SOBRE UN BUG DE COMPATIBILIDAD ENCONTRADO (Python 3.14)
+========================================
+mutatest 3.1.0 (ultima version publicada, sin mantenimiento desde ~2021) usa
+internamente "random.sample(mutant_operations, k=1)" sobre un set en
+mutatest/run.py (linea ~530). Python quito el soporte de sets en
+random.sample en versiones recientes, asi que en Python 3.14 esto revienta
+con:
+"TypeError: Population must be a sequence. For dicts or sets, use sorted(d)."
+
+Este archivo pertenece a la libreria (venv/Lib/site-packages/mutatest/run.py),
+NO al codigo del proyecto. Se aplico un parche minimo ahi (envolver el set en
+list(...) antes de random.sample) para que la libreria funcione en Python
+3.14. El codigo fuente del proyecto (src/payments_svc, tests/) no fue
+modificado.
+
+Si se recrea el entorno virtual o se reinstala mutatest, este parche se
+pierde y hay que volver a aplicarlo (o esperar a una version de mutatest
+compatible con Python 3.14).

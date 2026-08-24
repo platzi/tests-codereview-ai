@@ -1,0 +1,72 @@
+========================================================================
+SUITE MATA-MUTANTES
+Tests agregados a partir del reporte de mutation testing (mutatest)
+Proyecto: payments-svc
+Fecha: 2026-08-23
+========================================================================
+
+Contexto: mutatest reporto 4 mutantes sobrevivientes reales (mas 1 mutante
+equivalente, ver nota al final) en amounts.py y auth.py. Se agregaron tests
+nuevos en tests/test_amounts.py (clase
+ValidateNonNegativeAmountGuardsNaNAndInfinityTests) y en el archivo nuevo
+tests/test_auth.py. Verificado con:
+
+  mutatest -s src/payments_svc -t "pytest tests/ -k 'not test_canary_intentionally_fails'" -n 64
+
+Resultado antes -> despues: los 4 mutantes reales pasaron de SURVIVED a
+DETECTED. El unico que sigue SURVIVED es un mutante equivalente (ver nota).
+
+------------------------------------------------------------------------
+TABLA: MUTANTE -> TEST QUE LO MATA
+------------------------------------------------------------------------
+
+| # | Archivo:linea      | Mutacion (antes -> despues)                          | Funcion afectada           | Test que lo mata                                                                          | Archivo del test    | Estado    |
+|---|---------------------|-------------------------------------------------------|-----------------------------|---------------------------------------------------------------------------------------------|----------------------|-----------|
+| 1 | amounts.py:135      | If_Statement -> If_False (borra el guard is_finite())  | validate_non_negative_amount | test_validate_non_negative_amount_rejects_nan                                              | tests/test_amounts.py | DETECTED |
+| 1 | amounts.py:135      | If_Statement -> If_True                                | validate_non_negative_amount | test_validate_non_negative_amount_accepts_zero / test_validate_non_negative_amount_accepts_positive_amount | tests/test_amounts.py | DETECTED |
+| 2 | amounts.py:141      | Gt -> GtE                                              | validate_non_negative_amount | test_validate_non_negative_amount_accepts_amount_at_the_max_boundary (100000.00 no debe lanzar) | tests/test_amounts.py | DETECTED |
+| 2 | amounts.py:141      | Gt -> Lt / LtE / Eq / NotEq                            | validate_non_negative_amount | test_validate_non_negative_amount_rejects_amount_beyond_max (100000.01 debe lanzar)         | tests/test_amounts.py | DETECTED |
+| 2 | amounts.py:141      | If_Statement -> If_True / If_False                     | validate_non_negative_amount | test_validate_non_negative_amount_rejects_amount_beyond_max + accepts_amount_at_the_max_boundary | tests/test_amounts.py | DETECTED |
+| 3 | auth.py:33           | Eq -> Lt / LtE / NotEq                                 | can_refund (CUSTOMER)      | test_customer_cannot_refund_an_account_that_sorts_after_their_own ("acc-1" vs "acc-2")      | tests/test_auth.py    | DETECTED |
+| 3 | auth.py:33           | Eq -> Gt / GtE                                         | can_refund (CUSTOMER)      | test_customer_cannot_refund_an_account_that_sorts_before_their_own ("acc-2" vs "acc-1")     | tests/test_auth.py    | DETECTED |
+| 3 | auth.py:33           | (caso base, valida el "True" real)                     | can_refund (CUSTOMER)      | test_customer_can_refund_own_account                                                        | tests/test_auth.py    | DETECTED |
+| 4 | auth.py:21           | If_Statement -> If_True / If_False (require_authenticated) | require_authenticated  | test_require_authenticated_rejects_none / test_require_authenticated_returns_the_same_user  | tests/test_auth.py    | DETECTED |
+| - | auth.py:30           | If_Statement / In -> NotIn (SUPPORT/ADMIN bypass)      | can_refund (privilegiados) | test_support_can_refund_a_different_account / test_admin_can_refund_a_different_account      | tests/test_auth.py    | DETECTED |
+
+------------------------------------------------------------------------
+CLASES DE TEST NUEVAS (resumen)
+------------------------------------------------------------------------
+
+tests/test_amounts.py
+  - ValidateNonNegativeAmountGuardsNaNAndInfinityTests (7 tests)
+    Cubre: NaN, +Infinity, -Infinity, negativo, limite superior (frontera
+    inclusiva 100000.00), cero valido, positivo valido.
+
+tests/test_auth.py (archivo nuevo, antes no existia ningun test de auth.py)
+  - RequireAuthenticatedTests (2 tests)
+  - CanRefundPrivilegedRolesTests (2 tests)
+  - CanRefundCustomerRoleTests (3 tests)
+  - CanRefundRequiresAuthenticationTests (1 test)
+
+------------------------------------------------------------------------
+NOTA: MUTANTE EQUIVALENTE (no se puede matar, no requiere test)
+------------------------------------------------------------------------
+
+ - amounts.py:59, columna 22 - mutacion BitOr -> BitXor / BitAnd
+   Linea real: "def parse_amount(raw: str | int | Decimal) -> Decimal:"
+   El "|" mutado esta dentro de una anotacion de tipo, no en codigo que se
+   ejecute en runtime. Python no evalua las anotaciones como expresiones
+   booleanas salvo introspeccion explicita (que este codigo no hace), asi
+   que el comportamiento del programa es identico con "|", "^" o "&" ahi.
+   Ningun test puede distinguirlo porque no hay diferencia observable de
+   comportamiento. Se deja como SURVIVED de forma permanente y esperada.
+
+------------------------------------------------------------------------
+GAPS QUE QUEDAN FUERA DE ESTE ALCANCE (no pedidos, documentados para despues)
+------------------------------------------------------------------------
+
+mutatest tambien reporto sobrevivientes en api.py y refunds.py (ninguno de
+los dos tiene tests hoy). No se tocaron en esta ronda porque el pedido fue
+puntualmente "validacion de negativos" (amounts.py) y "auth" (auth.py).
+Quedan como trabajo futuro si se quiere subir la cobertura de mutation
+testing del proyecto completo.

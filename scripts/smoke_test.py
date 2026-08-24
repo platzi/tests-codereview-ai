@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from payments_svc.amounts import calculate_fee, parse_amount, total_with_fee
+from payments_svc.amounts import AmountError, calculate_fee, parse_amount, total_with_fee
 from payments_svc.refunds import RefundStatus, request_refund
 
 
@@ -22,8 +22,12 @@ def main() -> None:
     assert fee == Decimal("2.90")
     assert total == Decimal("102.90")
 
-    zero_fee = calculate_fee(Decimal("0.00"), "USD")
-    assert zero_fee == Decimal("0.00")
+    try:
+        calculate_fee(Decimal("0.00"), "USD")
+    except AmountError:
+        pass
+    else:
+        raise AssertionError("amount=0 must be rejected as invalid")
 
     refund = request_refund(
         original_amount=Decimal("10.00"),
@@ -32,7 +36,7 @@ def main() -> None:
     assert refund.status is RefundStatus.APPROVED
 
     print("payments-svc smoke test OK")
-    print("sentinel: amount=0 currently returns fee 0.00")
+    print("sentinel: amount=0 now rejected with AmountError")
     print("sentinel: refund > original currently approves")
 
 

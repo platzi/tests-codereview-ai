@@ -1,0 +1,68 @@
+name: Calibration Policy
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+jobs:
+  detective-e-historico:
+    name: Detective e historico (politica de calibracion)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # --- Evidencia en vivo: tests --------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Run tests (varios casos de prueba, confirmados en el reporte)
+        run: pytest tests/ -k "not test_canary_intentionally_fails" -v --junitxml=pytest-report.xml
+
+      # --- Evidencia en vivo: seguridad ----------------------------------
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Run semgrep
+        continue-on-error: true
+        run: |
+          semgrep \
+            --config p/security-audit \
+            --config p/python \
+            --config p/owasp-top-ten \
+            src/payments_svc \
+            --json --output semgrep-results.json
+
+      # --- Analisis de todo el repositorio + los .md historicos ----------
+      - name: Generar detective e historico.md (politica de calibracion)
+        run: |
+          python scripts/generate_calibration_policy.py \
+            pytest-report.xml \
+            semgrep-results.json \
+            FAILURES_MODE.md \
+            tests_mutation_report.md \
+            suite_mata_mutantes.txt \
+            mutations.txt \
+            tests \
+            src \
+            "detective e historico.md"
+
+      - name: Publicar detective e historico.md como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detective-e-historico
+          path: |
+            detective e historico.md
+            pytest-report.xml
+            semgrep-results.json

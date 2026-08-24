@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 
-from payments_svc.amounts import AmountError, round_money, validate_amount
+from payments_svc.amounts import (
+    AmountError,
+    round_money,
+    validate_amount,
+    validate_non_negative_amount,
+)
 
 
 class RefundStatus(StrEnum):
@@ -24,7 +29,7 @@ def calculate_remaining_refundable(
     already_refunded: Decimal,
 ) -> Decimal:
     validate_amount(original_amount)
-    validate_amount(already_refunded)
+    validate_non_negative_amount(already_refunded)
     return round_money(original_amount - already_refunded)
 
 
@@ -35,7 +40,7 @@ def request_refund(
 ) -> RefundDecision:
     validate_amount(original_amount)
     validate_amount(refund_amount)
-    validate_amount(already_refunded)
+    validate_non_negative_amount(already_refunded)
 
     remaining = calculate_remaining_refundable(original_amount, already_refunded)
 

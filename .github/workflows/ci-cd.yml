@@ -1,0 +1,121 @@
+name: CI/CD
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+jobs:
+  # --- CI: integracion ---------------------------------------------------
+  tests:
+    name: CI - tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Smoke test
+        run: python scripts/smoke_test.py
+
+      - name: Run tests
+        id: run_tests
+        # test_canary_intentionally_fails esta disenado para fallar siempre
+        # (existe para validar que el runner reporta fallos correctamente),
+        # asi que se excluye del gate normal de CI. Ver tests/test_amounts.py.
+        continue-on-error: true
+        run: pytest tests/ -k "not test_canary_intentionally_fails" -v --junitxml=pytest-report.xml
+
+      - name: Generar reporte de acuerdo.md
+        if: always()
+        run: python scripts/generate_report.py pytest-report.xml "reporte de acuerdo.md"
+
+      - name: Publicar reporte de tests como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-de-acuerdo (Python ${{ matrix.python-version }})
+          path: reporte de acuerdo.md
+
+      - name: Fallar el job si los tests fallaron
+        if: steps.run_tests.outcome == 'failure'
+        run: exit 1
+
+  # --- CI: checklist de revision (reviewer.md vs develop) -----------------
+  review:
+    name: CI - checklist de revision (reviewer.md)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (historia completa para diff contra develop)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Traer origin/develop
+        run: git fetch origin develop
+
+      - name: Generar diff contra develop
+        run: git diff origin/develop...HEAD > diff-vs-develop.txt
+
+      - name: Generar reporte de revision.md
+        run: python scripts/generate_review_checklist.py reviewer.md diff-vs-develop.txt "reporte de revision.md"
+
+      - name: Publicar reporte de revision como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-de-revision
+          path: |
+            reporte de revision.md
+            diff-vs-develop.txt
+
+  # --- CD: build del paquete (sin destino externo) -------------------------
+  build:
+    name: CD - build del paquete
+    needs: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build
+        run: python -m pip install --upgrade pip build
+
+      - name: Build wheel + sdist
+        run: python -m build
+
+      - name: Publicar dist/ como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: payments-svc-dist
+          path: dist/

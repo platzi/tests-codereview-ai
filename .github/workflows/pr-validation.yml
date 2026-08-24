@@ -1,0 +1,87 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # --- Validacion de IA: checklist de revision (reviewer.md) --------------
+  ai-review:
+    name: Validacion IA - checklist (reviewer.md) vs ${{ github.base_ref }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (historia completa para diff contra la base del PR)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Traer la rama base del PR
+        run: git fetch origin ${{ github.base_ref }}
+
+      - name: Generar diff contra la base del PR
+        run: git diff origin/${{ github.base_ref }}...HEAD > diff-vs-base.txt
+
+      - name: Generar reporte de revision.md
+        run: python scripts/generate_review_checklist.py reviewer.md diff-vs-base.txt "reporte de revision.md"
+
+      - name: Publicar reporte de revision como artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-de-revision-pr-${{ github.event.pull_request.number }}
+          path: |
+            reporte de revision.md
+            diff-vs-base.txt
+
+  # --- Validacion de seguridad: semgrep sobre src/payments_svc ------------
+  security:
+    name: Validacion seguridad (semgrep)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install semgrep
+        run: python -m pip install --upgrade pip semgrep
+
+      - name: Run semgrep
+        id: run_semgrep
+        continue-on-error: true
+        run: |
+          semgrep \
+            --config p/security-audit \
+            --config p/python \
+            --config p/owasp-top-ten \
+            src/payments_svc \
+            --json --output semgrep-results.json
+
+      - name: Generar reporte de seguridad.md
+        if: always()
+        id: report
+        continue-on-error: true
+        run: python scripts/generate_security_report.py semgrep-results.json "reporte de seguridad.md"
+
+      - name: Publicar reporte de seguridad como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-de-seguridad-pr-${{ github.event.pull_request.number }}
+          path: |
+            reporte de seguridad.md
+            semgrep-results.json
+
+      - name: Fallar el job si hay hallazgos ERROR
+        if: steps.report.outcome == 'failure'
+        run: exit 1

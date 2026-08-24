@@ -1,0 +1,41 @@
+name: Review
+
+on:
+  push:
+    branches: [developer]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch: {}
+
+jobs:
+  review-checklist:
+    name: Checklist de revision (reviewer.md) vs develop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (historia completa para diff contra develop)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Traer origin/develop
+        run: git fetch origin develop
+
+      - name: Generar diff contra develop
+        run: git diff origin/develop...HEAD > diff-vs-develop.txt
+
+      - name: Generar reporte de revision.md
+        run: python scripts/generate_review_checklist.py reviewer.md diff-vs-develop.txt "reporte de revision.md"
+
+      - name: Publicar reporte como artifact descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-de-revision
+          path: |
+            reporte de revision.md
+            diff-vs-develop.txt
