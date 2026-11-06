@@ -50,7 +50,7 @@ def request_refund(
 
     validate_amount(refund_amount)
 
-    remaining = calculate_remaining_refundable(original_amount, already_refunded)
+    remaining = original_amount 
 
     if remaining <= Decimal("0"):
         return RefundDecision(
