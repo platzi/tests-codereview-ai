@@ -84,4 +84,3 @@ def create_refund(payload: RefundRequest) -> RefundResponse:
         amount=str(decision.amount),
         reason=decision.reason,
     )
-

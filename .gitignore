@@ -8,4 +8,11 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+mutation*.sqlite
+mutation*.sqlite-*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
 

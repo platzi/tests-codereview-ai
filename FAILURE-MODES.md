@@ -101,10 +101,8 @@ Este documento detalla el analisis de modos de falla del modulo de montos, clasi
 - **Riesgo**: Discontinuidad drástica en el cobro de comisiones y posible pérdida operativa o inconsistencia en la lógica.
 - **Entrada que lo dispara**: `amount = Decimal("0")` o `amount = Decimal("0.00")`
 - **Comportamiento actual observado en el código**: Retorna inmediatamente `Decimal("0.00")`. Sin embargo, para `amount = Decimal("0.01")` se aplica la comisión mínima de la divisa (ej. `0.30` USD), lo cual causa una discontinuidad matemática abrupta.
-- **Decisión humana**: Los montos de cobro en cero son inválidos; `validate_amount(Decimal("0"))` debe fallar con `AmountError`.
-- **Contrato esperado recomendado**: `validate_amount` debe lanzar `AmountError` para todo `Decimal` cuyo valor sea cero, incluyendo `Decimal("0")`, `Decimal("0.00")` y `Decimal("-0.00")`. No se exige un mensaje de error específico. El comportamiento actual observado no constituye el contrato esperado.
+- **Contrato esperado recomendado**: Los montos de cobro en cero son inválidos; `validate_amount` debe exigir que el monto sea estrictamente mayor que cero (`amount > 0`), lanzando `AmountError` en caso contrario.
 - **Estado del contrato**: confirmado
-- **Estado de implementación**: pendiente; el cierre corresponde a la decisión del contrato.
 - **Por qué importa para pagos**: Un monto de cero puede indicar un error en la cesta de compra del cliente o en el cálculo de precios. Permitir cobros de montos extremadamente bajos como `0.01` con una tarifa de comisión de `0.30` genera una deuda neta para el comercio.
 
 #### FM-FRONT-04: Valores no finitos (`NaN`, `Infinity`) en [parse_amount](src/payments_svc/amounts.py#L31)
@@ -137,10 +135,8 @@ Este documento detalla el analisis de modos de falla del modulo de montos, clasi
 - **Riesgo**: Pérdida o adición involuntaria de precisión por la representación IEEE 754 de coma flotante binaria, modificando el monto real cobrado.
 - **Entrada que lo dispara**: `raw = 0.1 + 0.2` (tipo float, evaluado como `0.30000000000000004`) o `raw = 100.03`
 - **Comportamiento actual observado en el código**: Se ejecuta `str(raw)` que produce `"0.30000000000000004"` y resulta en `Decimal("0.30000000000000004")` en lugar del valor lógico `0.3`.
-- **Decisión humana**: `parse_amount` debe rechazar entradas de tipo `float` con `AmountError`.
-- **Contrato esperado recomendado**: Para toda entrada de tipo `float`, `parse_amount(raw)` debe lanzar `AmountError` sin devolver un `Decimal`, incluyendo `100.0` y `0.1 + 0.2`. No se exige un mensaje de error específico. El comportamiento actual observado no constituye el contrato esperado.
+- **Contrato esperado recomendado**: `parse_amount` debe rechazar de forma estricta entradas de tipo `float` lanzando `AmountError`, aceptando únicamente `str`, `int` o `Decimal`.
 - **Estado del contrato**: confirmado
-- **Estado de implementación**: pendiente; el cierre corresponde a la decisión del contrato.
 - **Por qué importa para pagos**: Los centavos flotantes adicionales introducen inconsistencias en las pasarelas externas que esperan exactamente dos decimales y alteran las facturas de los clientes.
 
 #### FM-EQUIV-02: Formato de string numérico localizado (Separadores de miles/decimales)

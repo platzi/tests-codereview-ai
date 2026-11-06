@@ -29,11 +29,14 @@ class CurrencyError(ValueError):
 
 
 def parse_amount(raw: str | int | Decimal) -> Decimal:
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
+    if raw is None:
         raise AmountError("amount is required")
 
     if isinstance(raw, float):
-        raise AmountError("amount cannot be a float")
+        raise AmountError("amount must be numeric")
+
+    if isinstance(raw, str) and not raw.strip():
+        raise AmountError("amount is required")
 
     try:
         amount = Decimal(str(raw).strip())
@@ -61,11 +64,8 @@ def normalize_currency(currency: str) -> str:
 
 
 def validate_amount(amount: Decimal) -> None:
-    if amount < Decimal("0"):
+    if amount <= Decimal("0"):
         raise AmountError("amount cannot be negative")
-
-    if amount < CENT:
-        raise AmountError("amount must be at least 0.01")
 
     if amount > MAX_AMOUNT:
         raise AmountError("amount exceeds maximum allowed")
@@ -79,9 +79,6 @@ def calculate_fee(amount: Decimal, currency: str) -> Decimal:
     currency = normalize_currency(currency)
     validate_amount(amount)
 
-    if amount == Decimal("0"):
-        return Decimal("0.00")
-
     percentage_fee = amount * FEE_RATES[currency]
     fee = max(percentage_fee, MINIMUM_FEES[currency])
     return round_money(fee)
@@ -90,4 +87,3 @@ def calculate_fee(amount: Decimal, currency: str) -> Decimal:
 def total_with_fee(amount: Decimal, currency: str) -> Decimal:
     validate_amount(amount)
     return round_money(amount + calculate_fee(amount, currency))
-

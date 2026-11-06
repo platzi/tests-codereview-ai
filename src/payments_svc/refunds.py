@@ -19,12 +19,17 @@ class RefundDecision:
     reason: str | None = None
 
 
+def validate_refunded_amount(amount: Decimal) -> None:
+    if amount < Decimal("0"):
+        raise AmountError("amount cannot be negative")
+
+
 def calculate_remaining_refundable(
     original_amount: Decimal,
     already_refunded: Decimal,
 ) -> Decimal:
     validate_amount(original_amount)
-    validate_amount(already_refunded)
+    validate_refunded_amount(already_refunded)
     return round_money(original_amount - already_refunded)
 
 
@@ -34,10 +39,7 @@ def request_refund(
     already_refunded: Decimal = Decimal("0.00"),
 ) -> RefundDecision:
     validate_amount(original_amount)
-    validate_amount(refund_amount)
-    validate_amount(already_refunded)
-
-    remaining = calculate_remaining_refundable(original_amount, already_refunded)
+    validate_refunded_amount(already_refunded)
 
     if refund_amount == Decimal("0"):
         return RefundDecision(
@@ -45,6 +47,10 @@ def request_refund(
             amount=Decimal("0.00"),
             reason="refund amount must be greater than zero",
         )
+
+    validate_amount(refund_amount)
+
+    remaining = calculate_remaining_refundable(original_amount, already_refunded)
 
     if remaining <= Decimal("0"):
         return RefundDecision(

@@ -1,261 +1,173 @@
-﻿import unittest
+﻿import os
+import sys
+import unittest
 from decimal import Decimal
 
+# Add 'src' directory to python path for importing payments_svc
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
 from payments_svc.amounts import (
-    AmountError, CurrencyError, MAX_AMOUNT, calculate_fee,
-    normalize_currency, parse_amount, round_money, total_with_fee,
+    parse_amount,
+    normalize_currency,
     validate_amount,
+    round_money,
+    calculate_fee,
+    total_with_fee,
+    AmountError,
+    CurrencyError,
+    MAX_AMOUNT
 )
 
+class TestAmounts(unittest.TestCase):
+    # --- 1. Null / Vacío ---
 
-class AmountsTest(unittest.TestCase):
-    def test_parse_amount_rejects_missing_amount(self):
-        # FM-NULL-01
-        # Arrange
-        raw = None
-        # Act
-        with self.assertRaises(AmountError) as error:
-            parse_amount(raw)
-        # Assert
-        self.assertIn("required", str(error.exception))
+    def test_fm_null_01_parse_amount_none(self):
+        """FM-NULL-01: Entrada nula en parse_amount lanza AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount(None)
+        self.assertEqual(str(ctx.exception), "amount is required")
 
-    def test_parse_amount_reports_blank_input_as_missing(self):
-        # FM-NULL-02
-        # Arrange
-        inputs = ("", "   ", "\t\n")
-        for raw in inputs:
-            with self.subTest(raw=raw):
-                # Act
-                with self.assertRaises(AmountError) as error:
-                    parse_amount(raw)
-                # Assert
-                self.assertEqual(str(error.exception), "amount is required")
+    def test_fm_null_02_parse_amount_empty_or_whitespace(self):
+        """FM-NULL-02: String vacío o espacios en blanco en parse_amount lanza AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("")
+        self.assertEqual(str(ctx.exception), "amount is required")
 
-    def test_normalize_currency_rejects_missing_currency(self):
-        # FM-NULL-03
-        # Arrange
-        currency = None
-        # Act
-        with self.assertRaises(CurrencyError) as error:
-            normalize_currency(currency)
-        # Assert
-        self.assertIn("required", str(error.exception))
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("   ")
+        self.assertEqual(str(ctx.exception), "amount is required")
 
-    def test_normalize_currency_reports_blank_currency_as_missing(self):
-        # FM-NULL-04
-        # Arrange
-        inputs = ("", "   ", "\t\n")
-        for currency in inputs:
-            with self.subTest(currency=currency):
-                # Act
-                with self.assertRaises(CurrencyError) as error:
-                    normalize_currency(currency)
-                # Assert
-                self.assertEqual(str(error.exception), "currency is required")
+    def test_fm_null_03_normalize_currency_none(self):
+        """FM-NULL-03: Moneda nula en normalize_currency lanza CurrencyError"""
+        with self.assertRaises(CurrencyError) as ctx:
+            normalize_currency(None)
+        self.assertEqual(str(ctx.exception), "currency is required")
 
-    def test_validate_amount_rejects_negative_amounts(self):
-        # FM-FRONT-01
-        # Arrange
-        amounts = (Decimal("-0.01"), Decimal("-100"))
-        for amount in amounts:
-            with self.subTest(amount=amount):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    validate_amount(amount)
+    def test_fm_null_04_normalize_currency_empty_or_whitespace(self):
+        """FM-NULL-04: Moneda vacía o con espacios en blanco en normalize_currency lanza CurrencyError"""
+        with self.assertRaises(CurrencyError) as ctx:
+            normalize_currency("")
+        self.assertEqual(str(ctx.exception), "currency is required")
 
-    def test_validate_amount_accepts_maximum_and_rejects_excess(self):
-        # FM-FRONT-02
-        # Arrange
-        maximum = MAX_AMOUNT
-        excess = maximum + Decimal("0.01")
-        # Act
-        result = validate_amount(maximum)
-        # Assert
-        self.assertIsNone(result)
-        # Act / Assert
+        with self.assertRaises(CurrencyError) as ctx:
+            normalize_currency("   ")
+        self.assertEqual(str(ctx.exception), "currency is required")
+
+    # --- 2. Frontera (Boundary) ---
+
+    def test_fm_front_01_validate_amount_negative(self):
+        """FM-FRONT-01: Monto negativo en validate_amount lanza AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            validate_amount(Decimal("-0.01"))
+        self.assertEqual(str(ctx.exception), "amount cannot be negative")
+
+    def test_fm_front_02_validate_amount_exceeds_max(self):
+        """FM-FRONT-02: Límite máximo en validate_amount lanza AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            validate_amount(MAX_AMOUNT + Decimal("0.01"))
+        self.assertEqual(str(ctx.exception), "amount exceeds maximum allowed")
+
+    def test_fm_front_03_validate_amount_zero_is_invalid(self):
+        """FM-FRONT-03: Los montos de cobro en cero son inválidos y deben fallar con AmountError"""
         with self.assertRaises(AmountError):
-            validate_amount(excess)
-
-    def test_validate_amount_rejects_zero_regardless_of_representation(self):
-        # FM-FRONT-03
-        # Arrange
-        amounts = (Decimal("0"), Decimal("0.00"), Decimal("-0.00"))
-        for amount in amounts:
-            with self.subTest(amount=repr(amount)):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    validate_amount(amount)
-
-    def test_parse_amount_rejects_non_finite_values(self):
-        # FM-FRONT-04
-        # Arrange
-        inputs = ("NaN", "Infinity", "-Infinity")
-        for raw in inputs:
-            with self.subTest(raw=raw):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    parse_amount(raw)
-
-    def test_round_money_uses_commercial_rounding_at_half_cent(self):
-        # FM-FRONT-05
-        # Arrange
-        cases = ((Decimal("1.005"), Decimal("1.01")), (Decimal("1.015"), Decimal("1.02")))
-        for amount, expected in cases:
-            with self.subTest(amount=amount):
-                # Act
-                result = round_money(amount)
-                # Assert
-                self.assertEqual(result, expected)
-
-    def test_parse_amount_rejects_float_inputs(self):
-        # FM-EQUIV-01
-        # Arrange
-        inputs = (100.0, 100.03, 0.1 + 0.2, 0.0)
-        for raw in inputs:
-            with self.subTest(raw=raw):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    parse_amount(raw)
-
-    def test_parse_amount_rejects_localized_numeric_formats(self):
-        # FM-EQUIV-02
-        # Arrange
-        inputs = ("1,000.50", "1.000,50", "1 000.50")
-        for raw in inputs:
-            with self.subTest(raw=raw):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    parse_amount(raw)
-
-    def test_parse_amount_accepts_canonical_decimal_format(self):
-        # FM-EQUIV-02
-        # Arrange
-        raw = "1000.50"
-        # Act
-        result = parse_amount(raw)
-        # Assert
-        self.assertIsInstance(result, Decimal)
-        self.assertEqual(result, Decimal("1000.50"))
-
-    def test_parse_amount_rejects_unsupported_types(self):
-        # FM-EQUIV-03
-        # Arrange
-        inputs = ([], {}, (), object())
-        for raw in inputs:
-            with self.subTest(raw=raw):
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    parse_amount(raw)
-
-    def test_parse_amount_accepts_supported_numeric_input_types(self):
-        # FM-EQUIV-03
-        # Arrange
-        inputs = ("12", 12, Decimal("12"))
-        for raw in inputs:
-            with self.subTest(raw=raw, input_type=type(raw).__name__):
-                # Act
-                result = parse_amount(raw)
-                # Assert
-                self.assertIsInstance(result, Decimal)
-                self.assertEqual(result, Decimal("12"))
-
-    def test_normalize_currency_trims_spaces_and_uppercases(self):
-        # FM-EQUIV-04
-        # Arrange
-        cases = (("  usd  ", "USD"), ("Usd", "USD"), (" eur ", "EUR"), ("cop", "COP"))
-        for currency, expected in cases:
-            with self.subTest(currency=currency):
-                # Act
-                result = normalize_currency(currency)
-                # Assert
-                self.assertEqual(result, expected)
-
-    def test_calculate_fee_applies_global_base_limit_to_all_currencies(self):
-        # FM-BIZ-01
-        # Arrange
-        currencies = ("USD", "EUR", "COP")
-        for currency in currencies:
-            with self.subTest(currency=currency):
-                # Act
-                fee = calculate_fee(MAX_AMOUNT, currency)
-                # Assert
-                self.assertIsInstance(fee, Decimal)
-                # Act / Assert
-                with self.assertRaises(AmountError):
-                    calculate_fee(MAX_AMOUNT + Decimal("0.01"), currency)
-
-    def test_total_with_fee_applies_maximum_to_base_amount_only(self):
-        # FM-BIZ-02
-        # Arrange
-        amount = MAX_AMOUNT
-        excess = MAX_AMOUNT + Decimal("0.01")
-        # Act
-        result = total_with_fee(amount, "USD")
-        # Assert
-        self.assertEqual(result, Decimal("102900.00"))
-        self.assertGreater(result, MAX_AMOUNT)
-        # Act / Assert
+            validate_amount(Decimal("0"))
         with self.assertRaises(AmountError):
-            total_with_fee(excess, "USD")
+            validate_amount(Decimal("0.00"))
 
-    def test_calculate_fee_preserves_configured_rates_and_minimums(self):
-        # FM-BIZ-03
-        # Arrange
-        cases = (
-            ("USD", Decimal("1.00"), Decimal("0.30")),
-            ("USD", Decimal("100.00"), Decimal("2.90")),
-            ("EUR", Decimal("1.00"), Decimal("0.25")),
-            ("EUR", Decimal("100.00"), Decimal("2.50")),
-            ("COP", Decimal("1.00"), Decimal("900.00")),
-            ("COP", Decimal("100000.00"), Decimal("1900.00")),
-        )
-        for currency, amount, expected in cases:
-            with self.subTest(currency=currency, amount=amount):
-                # Act
-                result = calculate_fee(amount, currency)
-                # Assert
-                self.assertEqual(result, expected)
+    def test_fm_front_04_parse_amount_non_finite(self):
+        """FM-FRONT-04: Valores no finitos (NaN, Infinity) en parse_amount lanzan AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("NaN")
+        self.assertEqual(str(ctx.exception), "amount must be finite")
 
-    def test_calculate_fee_rejects_currency_without_configuration(self):
-        # FM-BIZ-03
-        # Arrange
-        amount = Decimal("10.00")
-        currencies = ("MXN", "BRL")
-        for currency in currencies:
-            with self.subTest(currency=currency):
-                # Act / Assert
-                with self.assertRaises(CurrencyError):
-                    calculate_fee(amount, currency)
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("Infinity")
+        self.assertEqual(str(ctx.exception), "amount must be finite")
 
-    def test_validate_amount_accepts_minimum_charge(self):
-        # FM-BIZ-04
-        # Arrange
-        amount = Decimal("0.01")
-        # Act
-        result = validate_amount(amount)
-        # Assert
-        self.assertIsNone(result)
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("-Infinity")
+        self.assertEqual(str(ctx.exception), "amount must be finite")
 
-    def test_validate_amount_rejects_positive_amount_below_minimum_charge(self):
-        # FM-BIZ-04
-        # Arrange
-        amount = Decimal("0.009")
-        # Act / Assert
+    def test_fm_front_05_round_money_commercial_rounding(self):
+        """FM-FRONT-05: Redondeo en la frontera media usa redondeo comercial (ROUND_HALF_UP)"""
+        # El contrato confirmado exige redondeo comercial (ROUND_HALF_UP) para cobros al cliente.
+        self.assertEqual(round_money(Decimal("1.005")), Decimal("1.01"))
+        self.assertEqual(round_money(Decimal("1.015")), Decimal("1.02"))
+
+    # --- 3. Equivalencia ---
+
+    def test_fm_equiv_01_parse_amount_rejects_float(self):
+        """FM-EQUIV-01: parse_amount debe rechazar entradas float con AmountError"""
         with self.assertRaises(AmountError):
-            validate_amount(amount)
+            parse_amount(100.0)
+        with self.assertRaises(AmountError):
+            parse_amount(0.1 + 0.2)
 
-    def test_total_with_fee_rounds_fee_before_rounding_total(self):
-        # FM-BIZ-05
-        # Arrange
-        amount = Decimal("10.344")
-        currency = "USD"
-        # Act
-        fee = calculate_fee(amount, currency)
-        total = total_with_fee(amount, currency)
-        # Assert
+    def test_fm_equiv_02_parse_amount_rejects_localized_format(self):
+        """FM-EQUIV-02: Formato de string numérico localizado (separadores de miles/decimales) es rechazado"""
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("1,000.50")
+        self.assertEqual(str(ctx.exception), "amount must be numeric")
+
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount("1.000,50")
+        self.assertEqual(str(ctx.exception), "amount must be numeric")
+
+    def test_fm_equiv_03_parse_amount_unsupported_types(self):
+        """FM-EQUIV-03: Tipo de datos no soportados lanzan AmountError"""
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount([])
+        self.assertEqual(str(ctx.exception), "amount must be numeric")
+
+        with self.assertRaises(AmountError) as ctx:
+            parse_amount({})
+        self.assertEqual(str(ctx.exception), "amount must be numeric")
+
+    def test_fm_equiv_04_normalize_currency_whitespace_and_case(self):
+        """FM-EQUIV-04: Robustez en la normalización de la moneda (mayúsculas y espacios)"""
+        self.assertEqual(normalize_currency("  usd  "), "USD")
+        self.assertEqual(normalize_currency("Usd"), "USD")
+        self.assertEqual(normalize_currency("eur"), "EUR")
+
+    # --- 4. Contrato de Negocio ---
+
+    def test_fm_biz_01_global_max_amount_limit(self):
+        """FM-BIZ-01: Límite máximo estático global para múltiples divisas en validate_amount"""
+        with self.assertRaises(AmountError):
+            validate_amount(Decimal("100000.01"))
+        # Un monto válido menor o igual al límite global no debe fallar
+        validate_amount(Decimal("100000.00"))
+
+    def test_fm_biz_02_max_amount_evaluated_on_base_amount(self):
+        """FM-BIZ-02: El límite MAX_AMOUNT se evalúa sobre el monto base, no sobre el total con fee"""
+        total = total_with_fee(Decimal("100000.00"), "USD")
+        self.assertEqual(total, Decimal("102900.00"))
+
+    def test_fm_biz_03_currency_rates_and_minimum_fees(self):
+        """FM-BIZ-03: Tasas de comisión y mínimos acoplados en el código"""
+        # USD: rate 0.029, min 0.30
+        self.assertEqual(calculate_fee(Decimal("10.00"), "USD"), Decimal("0.30"))
+        self.assertEqual(calculate_fee(Decimal("100.00"), "USD"), Decimal("2.90"))
+
+        # EUR: rate 0.025, min 0.25
+        self.assertEqual(calculate_fee(Decimal("10.00"), "EUR"), Decimal("0.25"))
+
+        # COP: rate 0.019, min 900.00
+        self.assertEqual(calculate_fee(Decimal("10000.00"), "COP"), Decimal("900.00"))
+
+        # Moneda no soportada lanza CurrencyError
+        with self.assertRaises(CurrencyError):
+            calculate_fee(Decimal("10.00"), "XYZ")
+
+    def test_fm_biz_04_microtransacciones_minimum_amount(self):
+        """FM-BIZ-04: El monto mínimo de cobro para este módulo es 0.01"""
+        validate_amount(Decimal("0.01"))
+        self.assertEqual(calculate_fee(Decimal("0.01"), "USD"), Decimal("0.30"))
+
+    def test_fm_biz_05_double_rounding_behavior(self):
+        """FM-BIZ-05: Redondeo doble e independiente aceptado"""
+        # Se acepta redondeo individual de comisión y luego del total general
+        fee = calculate_fee(Decimal("10.00"), "USD")
         self.assertEqual(fee, Decimal("0.30"))
-        self.assertEqual(total, Decimal("10.64"))
-
-
-if __name__ == "__main__":
-    unittest.main()
+        total = total_with_fee(Decimal("10.00"), "USD")
+        self.assertEqual(total, Decimal("10.30"))

@@ -31,4 +31,3 @@ def can_refund(user: User, account_id: str) -> bool:
         return True
 
     return user.account_id == account_id
-
