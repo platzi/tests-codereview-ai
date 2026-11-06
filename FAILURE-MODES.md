@@ -1,126 +1,230 @@
-﻿# Modos de falla de amounts.py
+﻿# FAILURE-MODES.md - catalogo de fallos en payments-svc
 
-Revisión de `src/payments_svc/amounts.py`. No se escribieron ni ejecutaron tests.
+Este archivo registra los modos de falla que aparecen al usar IA para generar pruebas y revisar codigo en `payments-svc`.
 
-Los resultados son deducidos por lectura, no comprobados mediante ejecución. Interpreto «Entrada que lo desestima» como un caso que permite cuestionar la garantía señalada. Sin una especificación independiente, las reglas comerciales quedan pendientes.
+En `n1` se ejecuto dos veces el prompt ingenuo `Escribe los tests para amounts.py`: una ejecucion principal y otra ejecucion temporal de validacion. Las suites generadas no fueron identicas, pero repitieron el mismo patron: mucho codigo de test plausible, dependencia en `pytest`, cobertura de helpers internos y aceptacion de la implementacion actual como contrato.
 
-## Frontera
+## n1 - Prompt ingenuo
 
-- ID: F-01
-- Categoria: Frontera — rango permitido.
-- Riesgo: Aceptar o rechazar importes con límites comerciales incorrectos.
-- Entrada que lo desestima: `Decimal("-0.01")`, `Decimal("0")`, `Decimal("100000")`, `Decimal("100000.01")`.
-- Comportamiento actual observado en el código: `validate_amount` admite entre cero y cien mil, ambos incluidos, para cualquier moneda.
-- Contrato esperado recomendado: Confirmar extremos inclusivos y límites por moneda.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Un mismo límite numérico representa valores económicos distintos según la moneda.
+### Categoria: Generacion de tests
 
----
+- [n1] La IA genera suites que se ven completas, pero aceptan la implementacion actual como contrato. En ambas corridas trato `calculate_fee(Decimal("0.00"), "USD") == Decimal("0.00")` como comportamiento esperado, aunque el contrato de negocio todavia debe discutirse.
+- [n1] La IA cubre muchos casos nominales y de error, pero no distingue entre "esto pasa hoy" y "esto debe pasar". Ese salto convierte bugs sembrados en especificacion accidental.
+- [n1] La IA introduce dependencias y estilo de test no pedidos. En las dos corridas uso `pytest`, aunque el plan del modulo propone empezar con comandos simples de `unittest`.
+- [n1] La IA prueba helpers internos y constantes en ambas corridas, pero no siempre valida los contratos de negocio relevantes para pagos: fee minimo, fronteras exactas, montos maximos combinados con fee y reglas de redondeo desde la perspectiva del producto.
+- [n1] La IA no deja una trazabilidad clara entre cada test y un modo de falla. Sin catalogo previo, no sabemos que casos faltan, cuales sobran ni que riesgo cubre cada prueba.
 
-- ID: F-02
-- Categoria: Frontera — máximo del total.
-- Riesgo: El débito final supera el máximo validado.
-- Entrada que lo desestima: `total_with_fee(Decimal("100000"), "USD")`.
-- Comportamiento actual observado en el código: El total resulta `102900.00`; el máximo solo se aplica al principal.
-- Contrato esperado recomendado: Definir si el límite corresponde al principal, al total o a ambos.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: El cargo podría superar el límite autorizado para la operación.
+### Categoria: Revision de codigo
 
----
+- [n1] Una revision ingenua puede quedarse en estilo o cobertura aparente y no retar decisiones de negocio como `amount == 0`, redondeo bancario o reembolsos por encima del monto original.
+- [n1] La IA puede dar por seguro que una funcion valida autenticacion o autorizacion solo porque el flujo compila y tiene nombres plausibles.
 
-- ID: F-03
-- Categoria: Frontera — cero y mínimo positivo.
-- Riesgo: Una variación pequeña del importe genera un salto considerable en comisión.
-- Entrada que lo desestima: Comparar `calculate_fee(Decimal("0"), "COP")` con `calculate_fee(Decimal("0.01"), "COP")`.
-- Comportamiento actual observado en el código: Devuelve `0.00` y `900.00`, respectivamente.
-- Contrato esperado recomendado: Decidir si se aceptan operaciones de cero, si existe importe mínimo y si la comisión puede superar el principal.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Un pago pequeño podría generar un cargo desproporcionado.
+### Categoria: Dominio de pagos
 
-## Equivalencia
+- [n1] `amount == 0` es una frontera critica: debe decidirse explicitamente si aplica fee minimo, devuelve cero o se rechaza.
+- [n1] `refund_amount > original_amount` es una frontera critica: debe rechazarse, aunque la implementacion inicial lo aprueba como sentinel para trabajo futuro.
+- [n1] El redondeo decimal debe probarse contra reglas de negocio, no solo contra el metodo de redondeo que hoy usa la implementacion.
 
-- ID: E-01
-- Categoria: Equivalencia — formatos numéricos.
-- Riesgo: Admitir representaciones no previstas por el canal.
-- Entrada que lo desestima: `"1e2"`, `"1_000"`, `"1,23"` en `parse_amount`.
-- Comportamiento actual observado en el código: `Decimal` admite las dos primeras; la coma decimal produce `AmountError`.
-- Contrato esperado recomendado: Definir formatos admitidos, incluida notación científica, separadores y formatos locales.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Evita diferencias de interpretación entre formularios e integraciones.
+## n2 - Catalogo de modos de falla y contratos de `amounts.py`
 
----
+Este documento detalla el analisis de modos de falla del modulo de montos, clasificados en cuatro categorias: **Null/Vacio**, **Frontera**, **Equivalencia** y **Contrato de Negocio**. Para cada caso se separa el comportamiento actual observado del contrato esperado recomendado.
 
-- ID: E-02
-- Categoria: Equivalencia — `float` y decimal exacto.
-- Riesgo: Importes conceptualmente iguales llegan con distinta precisión.
-- Entrada que lo desestima: `parse_amount(0.1 + 0.2)` frente a `parse_amount("0.30")`.
-- Comportamiento actual observado en el código: Produce `Decimal("0.30000000000000004")` y `Decimal("0.30")`; no normaliza la escala.
-- Contrato esperado recomendado: Decidir si se admiten `float` y cómo se trata su precisión.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Los residuos pueden afectar comparaciones, límites y redondeos.
+### 1. Null / Vacío
 
----
+#### FM-NULL-01: Entrada nula en [parse_amount](src/payments_svc/amounts.py#L31)
+- **ID**: FM-NULL-01
+- **Categoría**: Null/vacío
+- **Riesgo**: Caída del flujo de ejecución en capas superiores por excepciones no controladas si no se captura [AmountError](src/payments_svc/amounts.py#L23).
+- **Entrada que lo dispara**: `raw = None`
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount is required"`.
+- **Contrato esperado recomendado**: Lanzar [AmountError](src/payments_svc/amounts.py#L23) indicando la ausencia del parámetro.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: No se puede procesar una transacción sin conocer el monto a cobrar; debe abortarse el proceso de inmediato.
 
-- ID: E-03
-- Categoria: Equivalencia — no finitos según el punto de entrada.
-- Riesgo: La protección depende de pasar primero por `parse_amount`.
-- Entrada que lo desestima: `validate_amount(Decimal("NaN"))` y `round_money(Decimal("NaN"))`.
-- Comportamiento actual observado en el código: El parser rechaza no finitos. Con el contexto decimal habitual, la validación directa lanza `InvalidOperation`; el redondeo devuelve `NaN`.
-- Contrato esperado recomendado: Documentar la precondición de valores finitos o aplicar un rechazo uniforme con `AmountError`.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Otros consumidores del módulo podrían obtener errores no controlados o valores monetarios inválidos.
+#### FM-NULL-02: String vacío o espacios en blanco en [parse_amount](src/payments_svc/amounts.py#L31)
+- **ID**: FM-NULL-02
+- **Categoría**: Null/vacío
+- **Riesgo**: Mensaje de error confuso que dificulta el diagnóstico en API públicas (trata la ausencia como un error de formato).
+- **Entrada que lo dispara**: `raw = ""` o `raw = "   "`
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount must be numeric"` (debido a que `Decimal("")` lanza `InvalidOperation`, atrapada en la línea 37).
+- **Contrato esperado recomendado**: Lanzar [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount is required"` porque una cadena vacia representa ausencia de monto.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Facilita a las capas API retornar el código de error HTTP preciso (como `400 Bad Request` distinguiendo campos vacíos de tipos inválidos) y ayuda en la depuración del cliente de integración.
 
-## Null / vacío
+#### FM-NULL-03: Moneda nula en [normalize_currency](src/payments_svc/amounts.py#L46)
+- **ID**: FM-NULL-03
+- **Categoría**: Null/vacío
+- **Riesgo**: Excepción de tipo `AttributeError` o procesamiento inconsistente si el flujo continúa sin una divisa válida.
+- **Entrada que lo dispara**: `currency = None`
+- **Comportamiento actual observado en el código**: Lanza [CurrencyError](src/payments_svc/amounts.py#L27) con el mensaje `"currency is required"`.
+- **Contrato esperado recomendado**: Lanzar [CurrencyError](src/payments_svc/amounts.py#L27) indicando que la moneda es obligatoria.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: La divisa determina las comisiones y las reglas de cargo de los adquirentes externos. Un pago sin divisa es inválido.
 
-- ID: N-01
-- Categoria: Null/vacío — importe ausente.
-- Riesgo: Manejo inconsistente de ausencia entre funciones públicas.
-- Entrada que lo desestima: `parse_amount(None)`, `parse_amount("")`, `validate_amount(None)`.
-- Comportamiento actual observado en el código: El parser lanza `AmountError`; la validación directa de `None` produce `TypeError`. Esta última entrada está fuera de su anotación `Decimal`.
-- Contrato esperado recomendado: Rechazar ausencia sin convertirla en cero y definir si la validación de tipos pertenece al parser o a cada función pública.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Determina si entradas inválidas reciben errores controlados y consistentes.
+#### FM-NULL-04: Moneda vacía o con espacios en blanco en [normalize_currency](src/payments_svc/amounts.py#L46)
+- **ID**: FM-NULL-04
+- **Categoría**: Null/vacío
+- **Riesgo**: Intentar procesar una transacción con divisa ausente o mal formateada que fallará en etapas posteriores del adquirente.
+- **Entrada que lo dispara**: `currency = ""` o `currency = "   "`
+- **Comportamiento actual observado en el código**: Lanza [CurrencyError](src/payments_svc/amounts.py#L27) con el mensaje `"currency is required"`.
+- **Contrato esperado recomendado**: Mantener el comportamiento actual.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Evita ensuciar la base de datos de auditoría transaccional con strings vacíos o inválidos.
 
 ---
 
-- ID: N-02
-- Categoria: Null/vacío — moneda ausente.
-- Riesgo: Que rutas alternativas omitan la validación de moneda.
-- Entrada que lo desestima: `calculate_fee(Decimal("0"), None)` y `normalize_currency("   ")`.
-- Comportamiento actual observado en el código: Lanza `CurrencyError`, incluso para importe cero; no aplica moneda predeterminada.
-- Contrato esperado recomendado: Exigir moneda explícita para calcular cargos y confirmar si también se exige en operaciones de cero.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Sin moneda no puede interpretarse el importe ni seleccionarse la tarifa.
+### 2. Frontera (Boundary)
 
-## Contrato de negocio
+#### FM-FRONT-01: Monto negativo en [validate_amount](src/payments_svc/amounts.py#L60)
+- **ID**: FM-FRONT-01
+- **Categoría**: Frontera
+- **Riesgo**: Fuga involuntaria de fondos, transacciones fraudulentas o cobros inversos no deseados.
+- **Entrada que lo dispara**: `amount = Decimal("-0.01")` (o cualquier valor `< 0`)
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount cannot be negative"`.
+- **Contrato esperado recomendado**: Mantener la validación estricta y bloquear todo monto negativo.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Los flujos de cobro solo permiten montos positivos. Los movimientos negativos pertenecen a flujos separados de reembolso u operaciones contables controladas.
 
-- ID: C-01
-- Categoria: Contrato de negocio — precisión y reconciliación.
-- Riesgo: El principal informado más la comisión no coincide exactamente con el total.
-- Entrada que lo desestima: Principal `Decimal("1.005")`, moneda `"USD"`.
-- Comportamiento actual observado en el código: Conserva el principal con tres decimales, calcula comisión `0.30` y total `1.30`. Redondea a centavos con `ROUND_HALF_EVEN`.
-- Contrato esperado recomendado: Definir precisión por moneda, tratamiento de fracciones adicionales y orden del redondeo para reconciliar principal, comisión y total.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Afecta recibos, conciliación y reembolsos.
+#### FM-FRONT-02: Límite máximo en [validate_amount](src/payments_svc/amounts.py#L60)
+- **ID**: FM-FRONT-02
+- **Categoría**: Frontera
+- **Riesgo**: Aprobación de cargos por encima del límite regulatorio o de prevención de fraude (AML), o rechazo incorrecto de transacciones legítimas.
+- **Entrada que lo dispara**: `amount = Decimal("100000.01")` (cualquier valor que exceda la constante `MAX_AMOUNT`)
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount exceeds maximum allowed"`.
+- **Contrato esperado recomendado**: Para el alcance actual mantener un limite maximo global mediante `MAX_AMOUNT`. La parametrizacion por moneda queda documentada como mejora futura, no como contrato vigente.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Los límites de transacciones individuales son regulaciones operativas de prevención de fraude obligatorias para evitar cargos excesivos no autorizados o lavado de dinero.
+
+#### FM-FRONT-03: Descontinuidad y comportamiento del límite de cero en [calculate_fee](src/payments_svc/amounts.py#L72)
+- **ID**: FM-FRONT-03
+- **Categoría**: Frontera
+- **Riesgo**: Discontinuidad drástica en el cobro de comisiones y posible pérdida operativa o inconsistencia en la lógica.
+- **Entrada que lo dispara**: `amount = Decimal("0")` o `amount = Decimal("0.00")`
+- **Comportamiento actual observado en el código**: Retorna inmediatamente `Decimal("0.00")`. Sin embargo, para `amount = Decimal("0.01")` se aplica la comisión mínima de la divisa (ej. `0.30` USD), lo cual causa una discontinuidad matemática abrupta.
+- **Decisión humana**: Los montos de cobro en cero son inválidos; `validate_amount(Decimal("0"))` debe fallar con `AmountError`.
+- **Contrato esperado recomendado**: `validate_amount` debe lanzar `AmountError` para todo `Decimal` cuyo valor sea cero, incluyendo `Decimal("0")`, `Decimal("0.00")` y `Decimal("-0.00")`. No se exige un mensaje de error específico. El comportamiento actual observado no constituye el contrato esperado.
+- **Estado del contrato**: confirmado
+- **Estado de implementación**: pendiente; el cierre corresponde a la decisión del contrato.
+- **Por qué importa para pagos**: Un monto de cero puede indicar un error en la cesta de compra del cliente o en el cálculo de precios. Permitir cobros de montos extremadamente bajos como `0.01` con una tarifa de comisión de `0.30` genera una deuda neta para el comercio.
+
+#### FM-FRONT-04: Valores no finitos (`NaN`, `Infinity`) en [parse_amount](src/payments_svc/amounts.py#L31)
+- **ID**: FM-FRONT-04
+- **Categoría**: Frontera
+- **Riesgo**: Corrupción en cálculos de bases de datos financieras, caídas lógicas o desborde de memoria.
+- **Entrada que lo dispara**: `raw = "NaN"` o `raw = "Infinity"`
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount must be finite"`.
+- **Contrato esperado recomendado**: Bloquear de forma segura cualquier entrada no finita antes de que alcance cualquier cálculo o sistema externo.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Los sistemas financieros operan estrictamente sobre números reales acotados. Permitir infinitos o nulos aritméticos puede corromper los saldos agregados o las pasarelas externas.
+
+#### FM-FRONT-05: Redondeo en la frontera media (`ROUND_HALF_EVEN`) en [round_money](src/payments_svc/amounts.py#L68)
+- **ID**: FM-FRONT-05
+- **Categoría**: Frontera
+- **Riesgo**: Discrepancias de centavos (sobre todo pérdidas/ganancias hormiga) entre los cálculos del negocio, los balances del libro contable y el procesador de pagos.
+- **Entrada que lo dispara**: Fracciones de centavo que caen exactamente a la mitad, ej. `Decimal("1.005")` y `Decimal("1.015")`.
+- **Comportamiento actual observado en el código**: Aplica redondeo bancario (`ROUND_HALF_EVEN`). Así, `1.005` se redondea a `1.00` y `1.015` se redondea a `1.02`.
+- **Contrato esperado recomendado**: Usar redondeo comercial (`ROUND_HALF_UP`) para montos cobrados al cliente.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: La acumulación de diferencias de centavos por redondeos no estandarizados causa descuadres en los balances mensuales agregados de contabilidad y facturación.
 
 ---
 
-- ID: C-02
-- Categoria: Contrato de negocio — tabla y fórmula de comisiones.
-- Riesgo: Cobrar tarifas que no cuenten con aprobación comercial.
-- Entrada que lo desestima: `calculate_fee(Decimal("100"), "USD")`, y sus equivalentes con `"EUR"` y `"COP"`.
-- Comportamiento actual observado en el código: Devuelve `2.90`, `2.50` y `900.00`. Elige el mayor entre porcentaje y mínimo, y después redondea.
-- Contrato esperado recomendado: Confirmar monedas habilitadas, tasas, mínimos y fórmula. Las constantes actuales no prueban su corrección comercial.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Una regla incorrecta provoca sobrecobros o pérdida de ingresos sistemática.
+### 3. Equivalencia
+
+#### FM-EQUIV-01: Pérdida de precisión al inicializar desde tipo float en [parse_amount](src/payments_svc/amounts.py#L31)
+- **ID**: FM-EQUIV-01
+- **Categoría**: Equivalencia
+- **Riesgo**: Pérdida o adición involuntaria de precisión por la representación IEEE 754 de coma flotante binaria, modificando el monto real cobrado.
+- **Entrada que lo dispara**: `raw = 0.1 + 0.2` (tipo float, evaluado como `0.30000000000000004`) o `raw = 100.03`
+- **Comportamiento actual observado en el código**: Se ejecuta `str(raw)` que produce `"0.30000000000000004"` y resulta en `Decimal("0.30000000000000004")` en lugar del valor lógico `0.3`.
+- **Decisión humana**: `parse_amount` debe rechazar entradas de tipo `float` con `AmountError`.
+- **Contrato esperado recomendado**: Para toda entrada de tipo `float`, `parse_amount(raw)` debe lanzar `AmountError` sin devolver un `Decimal`, incluyendo `100.0` y `0.1 + 0.2`. No se exige un mensaje de error específico. El comportamiento actual observado no constituye el contrato esperado.
+- **Estado del contrato**: confirmado
+- **Estado de implementación**: pendiente; el cierre corresponde a la decisión del contrato.
+- **Por qué importa para pagos**: Los centavos flotantes adicionales introducen inconsistencias en las pasarelas externas que esperan exactamente dos decimales y alteran las facturas de los clientes.
+
+#### FM-EQUIV-02: Formato de string numérico localizado (Separadores de miles/decimales)
+- **ID**: FM-EQUIV-02
+- **Categoría**: Equivalencia
+- **Riesgo**: Interpretación incorrecta de cifras (ej. cobrar 1,000 veces más o menos del monto original si se malinterpretan las comas o puntos decimales) o rechazo de entradas válidas según la región.
+- **Entrada que lo dispara**: `"1,000.50"`, `"1.000,50"`, `"1 000.50"`
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con `"amount must be numeric"` para cualquier string que contenga separadores que la clase `Decimal` no admita de forma nativa.
+- **Contrato esperado recomendado**: Aceptar solo formato canonico con punto decimal y sin separadores de miles, por ejemplo `1000.50`. Los formatos localizados deben rechazarse en esta capa.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: La confusión entre la coma `,` y el punto `.` decimal es una de las fuentes principales de cobros erróneos de gran magnitud (e.g. cobrar $10.000 como $10 o viceversa).
+
+#### FM-EQUIV-03: Tipo de datos no soportados en [parse_amount](src/payments_svc/amounts.py#L31)
+- **ID**: FM-EQUIV-03
+- **Categoría**: Equivalencia
+- **Riesgo**: Lanzamiento de excepciones genéricas o comportamientos indefinidos ante payloads corruptos.
+- **Entrada que lo dispara**: `raw = []` o `raw = {}`
+- **Comportamiento actual observado en el código**: Lanza [AmountError](src/payments_svc/amounts.py#L23) con el mensaje `"amount must be numeric"`.
+- **Contrato esperado recomendado**: Validar explícitamente que la entrada sea de tipo `str`, `int` o `Decimal` antes de intentar el casteo y lanzar `AmountError` en caso contrario. El tipo `float` se rechaza por contrato en `FM-EQUIV-01`.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Previene inyecciones de tipos de datos inesperados en los motores de cálculo financiero.
+
+#### FM-EQUIV-04: Robustez en la normalización de la moneda en [normalize_currency](src/payments_svc/amounts.py#L46)
+- **ID**: FM-EQUIV-04
+- **Categoría**: Equivalencia
+- **Riesgo**: Rechazo erróneo de peticiones de pago por discrepancias cosméticas de formato (ej. minúsculas o espacios).
+- **Entrada que lo dispara**: `currency = "  usd  "` o `currency = "Usd"`
+- **Comportamiento actual observado en el código**: Retorna `"USD"`.
+- **Contrato esperado recomendado**: Mantener el comportamiento actual de limpiar espacios y convertir a mayúsculas.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Asegura que las monedas se almacenen en formato estándar ISO 4217, facilitando las conciliaciones contables.
 
 ---
 
-- ID: C-03
-- Categoria: Contrato de negocio — contexto decimal.
-- Riesgo: El resultado depende de configuración numérica externa al módulo.
-- Entrada que lo desestima: `total_with_fee(Decimal("100000"), "USD")` con precisión decimal configurada en `6`.
-- Comportamiento actual observado en el código: Multiplicaciones y sumas usan el contexto activo; `quantize` puede lanzar `InvalidOperation` al requerir más dígitos. El módulo no fija contexto ni traduce esa excepción.
-- Contrato esperado recomendado: Establecer la precisión requerida y si el módulo debe garantizarla internamente.
-- Estado del contrato: pendiente de decisión.
-- Por que importa para pagos: Cambios de contexto en otro componente pueden interrumpir cálculos que antes funcionaban.
+### 4. Contrato de Negocio
+
+#### FM-BIZ-01: Límite máximo estático global para múltiples divisas en [validate_amount](src/payments_svc/amounts.py#L60)
+- **ID**: FM-BIZ-01
+- **Categoría**: Contrato de negocio
+- **Riesgo**: Bloqueo injustificado de transacciones cotidianas de montos estándar en monedas con alta denominación nominal (ej. COP).
+- **Entrada que lo dispara**: `amount = Decimal("100000.01")` y `currency = "COP"`
+- **Comportamiento actual observado en el código**: Aplica la validación de `MAX_AMOUNT` de forma global con el límite estático `100000.00`. Para COP, esto significa un límite de aproximadamente $25 USD.
+- **Contrato esperado recomendado**: Mantener un limite maximo global para el alcance actual. Los limites por divisa se reconocen como necesidad realista, pero quedan fuera del contrato vigente.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Hace inviable el cobro de la mayoría de los productos legítimos en el mercado de Colombia debido a un límite inapropiado para la divisa local.
+
+#### FM-BIZ-02: Límite de monto máximo respecto a la tarifa total en [total_with_fee](src/payments_svc/amounts.py#L84)
+- **ID**: FM-BIZ-02
+- **Categoría**: Contrato de negocio
+- **Riesgo**: Exceder el límite de transacción del adquirente y recibir declinaciones al enviar el cobro final.
+- **Entrada que lo dispara**: `amount = Decimal("100000.00")` (USD)
+- **Comportamiento actual observado en el código**: `total_with_fee` retorna `102900.00 USD` (excediendo `MAX_AMOUNT` en el cobro total).
+- **Contrato esperado recomendado**: Para el alcance actual `MAX_AMOUNT` se evalua sobre el monto base (`amount`). El limite sobre el cargo final al tarjetahabiente queda fuera de alcance.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Los límites de procesamiento bancario suelen evaluarse sobre el monto total debitado de la tarjeta. Dejar pasar montos de base en el límite máximo que aumenten por comisiones resultará en rechazos del procesador.
+
+#### FM-BIZ-03: Tasas de comisión y mínimos acoplados en el código
+- **ID**: FM-BIZ-03
+- **Categoría**: Contrato de negocio
+- **Riesgo**: Pérdidas operacionales por no poder actualizar tarifas ante cambios en los contratos con los procesadores, o caídas del servicio por no poder habilitar nuevas monedas rápidamente.
+- **Entrada que lo dispara**: Cambios de tarifas de comisiones del procesador o adición de nuevas monedas como `MXN` o `BRL`.
+- **Comportamiento actual observado en el código**: Las tarifas de comisión (`FEE_RATES`) y mínimos (`MINIMUM_FEES`) están definidos estáticamente en constantes `Final` en el código. Cualquier moneda ausente en la lista arroja `CurrencyError`.
+- **Contrato esperado recomendado**: Mantener las tasas y minimos como constantes de codigo para el ejercicio. Externalizarlos queda como evolucion posterior.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Las tarifas cobradas a los comercios fluctúan constantemente y varían según la negociación de la cuenta bancaria. Forzar cambios de código para actualizar tarifas es un riesgo operativo alto.
+
+#### FM-BIZ-04: Transacciones de bajo valor con tarifas mínimas desproporcionadas
+- **ID**: FM-BIZ-04
+- **Categoría**: Contrato de negocio
+- **Riesgo**: Rentabilidad negativa para el comercio o recargos abusivos a los clientes en micro-transacciones.
+- **Entrada que lo dispara**: `amount = Decimal("0.10")` (USD)
+- **Comportamiento actual observado en el código**: Se calcula una comisión de `0.30 USD` (el mínimo para USD). El cobro total es `0.40 USD` (un 300% de la compra).
+- **Contrato esperado recomendado**: El monto minimo de cobro para este modulo es `0.01`. Las politicas de microtransacciones y rentabilidad quedan fuera de alcance.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Protege al comercio de incurrir en pérdidas financieras por micro-transacciones procesadas.
+
+#### FM-BIZ-05: Redondeo doble e independiente
+- **ID**: FM-BIZ-05
+- **Categoría**: Contrato de negocio
+- **Riesgo**: Discrepancias aritméticas acumulativas en el cálculo final del total transaccionado debido al doble redondeo.
+- **Entrada que lo dispara**: Valores con precisión decimal alta que se redondean en `calculate_fee` y nuevamente en `total_with_fee`.
+- **Comportamiento actual observado en el código**:
+  - [calculate_fee](src/payments_svc/amounts.py#L72) hace `round_money(fee)`.
+  - [total_with_fee](src/payments_svc/amounts.py#L84) hace `round_money(amount + calculate_fee(amount, currency))`.
+- **Contrato esperado recomendado**: Para el alcance actual se acepta redondear la comision y luego redondear el total. Se documenta como simplificacion contable aceptada para esta implementacion.
+- **Estado del contrato**: confirmado
+- **Por qué importa para pagos**: Previene pérdidas hormiga y errores de conciliación por redondeos independientes y sucesivos sobre la misma transacción.

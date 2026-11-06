@@ -1,172 +1,260 @@
+﻿import unittest
 from decimal import Decimal
-from pathlib import Path
-import sys
-import unittest
-
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from payments_svc.amounts import (
-    AmountError,
-    CurrencyError,
-    calculate_fee,
-    normalize_currency,
-    parse_amount,
-    round_money,
-    total_with_fee,
+    AmountError, CurrencyError, MAX_AMOUNT, calculate_fee,
+    normalize_currency, parse_amount, round_money, total_with_fee,
     validate_amount,
 )
 
 
-class ParseAmountTests(unittest.TestCase):
-    def test_numeric_inputs_preserve_precision(self):
-        for raw, expected in [
-            (" 12.340 ", "12.340"),
-            (12, "12"),
-            (0.1, "0.1"),
-            (Decimal("1.23456789"), "1.23456789"),
-            ("1e2", "100"),
-            ("-1", "-1"),
-            ("100000.01", "100000.01"),
-        ]:
-            with self.subTest(raw=raw):
-                result = parse_amount(raw)
-                self.assertIsInstance(result, Decimal)
-                self.assertEqual(result, Decimal(expected))
+class AmountsTest(unittest.TestCase):
+    def test_parse_amount_rejects_missing_amount(self):
+        # FM-NULL-01
+        # Arrange
+        raw = None
+        # Act
+        with self.assertRaises(AmountError) as error:
+            parse_amount(raw)
+        # Assert
+        self.assertIn("required", str(error.exception))
 
-    def test_missing_amount(self):
-        with self.assertRaisesRegex(AmountError, "^amount is required$"):
-            parse_amount(None)
-
-    def test_invalid_numeric_inputs(self):
-        for raw in ("", "  ", "abc", "1,000.00", True):
+    def test_parse_amount_reports_blank_input_as_missing(self):
+        # FM-NULL-02
+        # Arrange
+        inputs = ("", "   ", "\t\n")
+        for raw in inputs:
             with self.subTest(raw=raw):
-                with self.assertRaisesRegex(AmountError, "^amount must be numeric$"):
+                # Act
+                with self.assertRaises(AmountError) as error:
                     parse_amount(raw)
+                # Assert
+                self.assertEqual(str(error.exception), "amount is required")
 
-    def test_non_finite_inputs(self):
-        for raw in ("NaN", "sNaN", "Infinity", "-Infinity", float("inf"), Decimal("NaN")):
-            with self.subTest(raw=raw):
-                with self.assertRaisesRegex(AmountError, "^amount must be finite$"):
-                    parse_amount(raw)
+    def test_normalize_currency_rejects_missing_currency(self):
+        # FM-NULL-03
+        # Arrange
+        currency = None
+        # Act
+        with self.assertRaises(CurrencyError) as error:
+            normalize_currency(currency)
+        # Assert
+        self.assertIn("required", str(error.exception))
 
-
-class NormalizeCurrencyTests(unittest.TestCase):
-    def test_supported_currencies_are_normalized(self):
-        for raw, expected in [(" usd ", "USD"), ("eUr", "EUR"), ("\tcop\n", "COP")]:
-            with self.subTest(raw=raw):
-                self.assertEqual(normalize_currency(raw), expected)
-
-    def test_missing_currency(self):
-        for raw in (None, "", " \t\n"):
-            with self.subTest(raw=raw):
-                with self.assertRaisesRegex(CurrencyError, "^currency is required$"):
-                    normalize_currency(raw)
-
-    def test_unsupported_currency(self):
-        with self.assertRaisesRegex(CurrencyError, "^unsupported currency: GBP$"):
-            normalize_currency(" gbp ")
-
-
-class ValidateAmountTests(unittest.TestCase):
-    def test_inclusive_boundaries(self):
-        for amount in ("0", "-0.00", "0.01", "99999.99", "100000.00"):
-            with self.subTest(amount=amount):
-                self.assertIsNone(validate_amount(Decimal(amount)))
-
-    def test_negative_amount(self):
-        with self.assertRaisesRegex(AmountError, "^amount cannot be negative$"):
-            validate_amount(Decimal("-0.001"))
-
-    def test_amount_above_maximum(self):
-        with self.assertRaisesRegex(AmountError, "^amount exceeds maximum allowed$"):
-            validate_amount(Decimal("100000.001"))
-
-
-class RoundMoneyTests(unittest.TestCase):
-    def test_rounds_to_cents_using_half_even(self):
-        for value, expected in [
-            ("1", "1.00"),
-            ("1.234", "1.23"),
-            ("1.236", "1.24"),
-            ("1.225", "1.22"),
-            ("1.235", "1.24"),
-            ("-1.225", "-1.22"),
-            ("-1.235", "-1.24"),
-        ]:
-            with self.subTest(value=value):
-                result = round_money(Decimal(value))
-                self.assertEqual(result, Decimal(expected))
-                self.assertEqual(result.as_tuple().exponent, -2)
-
-
-class CalculateFeeTests(unittest.TestCase):
-    def test_minimum_and_percentage_fees_for_each_currency(self):
-        for amount, currency, expected in [
-            ("1", "USD", "0.30"),
-            ("1", "EUR", "0.25"),
-            ("1", "COP", "900.00"),
-            ("100", " usd ", "2.90"),
-            ("100", "EUR", "2.50"),
-            ("50000", "COP", "950.00"),
-            ("10", "EUR", "0.25"),
-            ("10.60", "USD", "0.31"),
-            ("100000", "USD", "2900.00"),
-            ("100000", "EUR", "2500.00"),
-            ("100000", "COP", "1900.00"),
-        ]:
-            with self.subTest(amount=amount, currency=currency):
-                self.assertEqual(calculate_fee(Decimal(amount), currency), Decimal(expected))
-
-    def test_zero_has_no_fee_in_each_currency(self):
-        for currency in ("USD", "EUR", "COP"):
+    def test_normalize_currency_reports_blank_currency_as_missing(self):
+        # FM-NULL-04
+        # Arrange
+        inputs = ("", "   ", "\t\n")
+        for currency in inputs:
             with self.subTest(currency=currency):
-                result = calculate_fee(Decimal("0"), currency)
-                self.assertEqual(result, Decimal("0.00"))
-                self.assertEqual(result.as_tuple().exponent, -2)
+                # Act
+                with self.assertRaises(CurrencyError) as error:
+                    normalize_currency(currency)
+                # Assert
+                self.assertEqual(str(error.exception), "currency is required")
 
-    def test_percentage_fee_uses_half_even_rounding(self):
-        for amount, expected in [("12.20", "0.30"), ("12.60", "0.32")]:
+    def test_validate_amount_rejects_negative_amounts(self):
+        # FM-FRONT-01
+        # Arrange
+        amounts = (Decimal("-0.01"), Decimal("-100"))
+        for amount in amounts:
             with self.subTest(amount=amount):
-                self.assertEqual(calculate_fee(Decimal(amount), "EUR"), Decimal(expected))
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    validate_amount(amount)
 
+    def test_validate_amount_accepts_maximum_and_rejects_excess(self):
+        # FM-FRONT-02
+        # Arrange
+        maximum = MAX_AMOUNT
+        excess = maximum + Decimal("0.01")
+        # Act
+        result = validate_amount(maximum)
+        # Assert
+        self.assertIsNone(result)
+        # Act / Assert
+        with self.assertRaises(AmountError):
+            validate_amount(excess)
 
-class TotalWithFeeTests(unittest.TestCase):
-    def test_total_includes_fee_and_rounds_to_cents(self):
-        for amount, currency, expected in [
-            ("100", " usd ", "102.90"),
-            ("100", "EUR", "102.50"),
-            ("50000", "COP", "50950.00"),
-            ("1", "USD", "1.30"),
-            ("1.005", "USD", "1.30"),
-            ("1.015", "USD", "1.32"),
-            ("0", "COP", "0.00"),
-            ("100000", "USD", "102900.00"),
-        ]:
-            with self.subTest(amount=amount, currency=currency):
-                result = total_with_fee(Decimal(amount), currency)
-                self.assertEqual(result, Decimal(expected))
-                self.assertEqual(result.as_tuple().exponent, -2)
+    def test_validate_amount_rejects_zero_regardless_of_representation(self):
+        # FM-FRONT-03
+        # Arrange
+        amounts = (Decimal("0"), Decimal("0.00"), Decimal("-0.00"))
+        for amount in amounts:
+            with self.subTest(amount=repr(amount)):
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    validate_amount(amount)
 
+    def test_parse_amount_rejects_non_finite_values(self):
+        # FM-FRONT-04
+        # Arrange
+        inputs = ("NaN", "Infinity", "-Infinity")
+        for raw in inputs:
+            with self.subTest(raw=raw):
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    parse_amount(raw)
 
-class PaymentValidationTests(unittest.TestCase):
-    def test_fee_and_total_reject_invalid_amounts(self):
-        for operation in (calculate_fee, total_with_fee):
-            for amount, message in [
-                ("-0.01", "amount cannot be negative"),
-                ("100000.01", "amount exceeds maximum allowed"),
-            ]:
-                with self.subTest(operation=operation.__name__, amount=amount):
-                    with self.assertRaisesRegex(AmountError, f"^{message}$"):
-                        operation(Decimal(amount), "USD")
+    def test_round_money_uses_commercial_rounding_at_half_cent(self):
+        # FM-FRONT-05
+        # Arrange
+        cases = ((Decimal("1.005"), Decimal("1.01")), (Decimal("1.015"), Decimal("1.02")))
+        for amount, expected in cases:
+            with self.subTest(amount=amount):
+                # Act
+                result = round_money(amount)
+                # Assert
+                self.assertEqual(result, expected)
 
-    def test_fee_and_total_validate_currency_even_for_zero(self):
-        for operation in (calculate_fee, total_with_fee):
-            for amount in ("0", "1"):
-                for currency in (None, "", "GBP"):
-                    with self.subTest(operation=operation.__name__, amount=amount, currency=currency):
-                        with self.assertRaises(CurrencyError):
-                            operation(Decimal(amount), currency)
+    def test_parse_amount_rejects_float_inputs(self):
+        # FM-EQUIV-01
+        # Arrange
+        inputs = (100.0, 100.03, 0.1 + 0.2, 0.0)
+        for raw in inputs:
+            with self.subTest(raw=raw):
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    parse_amount(raw)
+
+    def test_parse_amount_rejects_localized_numeric_formats(self):
+        # FM-EQUIV-02
+        # Arrange
+        inputs = ("1,000.50", "1.000,50", "1 000.50")
+        for raw in inputs:
+            with self.subTest(raw=raw):
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    parse_amount(raw)
+
+    def test_parse_amount_accepts_canonical_decimal_format(self):
+        # FM-EQUIV-02
+        # Arrange
+        raw = "1000.50"
+        # Act
+        result = parse_amount(raw)
+        # Assert
+        self.assertIsInstance(result, Decimal)
+        self.assertEqual(result, Decimal("1000.50"))
+
+    def test_parse_amount_rejects_unsupported_types(self):
+        # FM-EQUIV-03
+        # Arrange
+        inputs = ([], {}, (), object())
+        for raw in inputs:
+            with self.subTest(raw=raw):
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    parse_amount(raw)
+
+    def test_parse_amount_accepts_supported_numeric_input_types(self):
+        # FM-EQUIV-03
+        # Arrange
+        inputs = ("12", 12, Decimal("12"))
+        for raw in inputs:
+            with self.subTest(raw=raw, input_type=type(raw).__name__):
+                # Act
+                result = parse_amount(raw)
+                # Assert
+                self.assertIsInstance(result, Decimal)
+                self.assertEqual(result, Decimal("12"))
+
+    def test_normalize_currency_trims_spaces_and_uppercases(self):
+        # FM-EQUIV-04
+        # Arrange
+        cases = (("  usd  ", "USD"), ("Usd", "USD"), (" eur ", "EUR"), ("cop", "COP"))
+        for currency, expected in cases:
+            with self.subTest(currency=currency):
+                # Act
+                result = normalize_currency(currency)
+                # Assert
+                self.assertEqual(result, expected)
+
+    def test_calculate_fee_applies_global_base_limit_to_all_currencies(self):
+        # FM-BIZ-01
+        # Arrange
+        currencies = ("USD", "EUR", "COP")
+        for currency in currencies:
+            with self.subTest(currency=currency):
+                # Act
+                fee = calculate_fee(MAX_AMOUNT, currency)
+                # Assert
+                self.assertIsInstance(fee, Decimal)
+                # Act / Assert
+                with self.assertRaises(AmountError):
+                    calculate_fee(MAX_AMOUNT + Decimal("0.01"), currency)
+
+    def test_total_with_fee_applies_maximum_to_base_amount_only(self):
+        # FM-BIZ-02
+        # Arrange
+        amount = MAX_AMOUNT
+        excess = MAX_AMOUNT + Decimal("0.01")
+        # Act
+        result = total_with_fee(amount, "USD")
+        # Assert
+        self.assertEqual(result, Decimal("102900.00"))
+        self.assertGreater(result, MAX_AMOUNT)
+        # Act / Assert
+        with self.assertRaises(AmountError):
+            total_with_fee(excess, "USD")
+
+    def test_calculate_fee_preserves_configured_rates_and_minimums(self):
+        # FM-BIZ-03
+        # Arrange
+        cases = (
+            ("USD", Decimal("1.00"), Decimal("0.30")),
+            ("USD", Decimal("100.00"), Decimal("2.90")),
+            ("EUR", Decimal("1.00"), Decimal("0.25")),
+            ("EUR", Decimal("100.00"), Decimal("2.50")),
+            ("COP", Decimal("1.00"), Decimal("900.00")),
+            ("COP", Decimal("100000.00"), Decimal("1900.00")),
+        )
+        for currency, amount, expected in cases:
+            with self.subTest(currency=currency, amount=amount):
+                # Act
+                result = calculate_fee(amount, currency)
+                # Assert
+                self.assertEqual(result, expected)
+
+    def test_calculate_fee_rejects_currency_without_configuration(self):
+        # FM-BIZ-03
+        # Arrange
+        amount = Decimal("10.00")
+        currencies = ("MXN", "BRL")
+        for currency in currencies:
+            with self.subTest(currency=currency):
+                # Act / Assert
+                with self.assertRaises(CurrencyError):
+                    calculate_fee(amount, currency)
+
+    def test_validate_amount_accepts_minimum_charge(self):
+        # FM-BIZ-04
+        # Arrange
+        amount = Decimal("0.01")
+        # Act
+        result = validate_amount(amount)
+        # Assert
+        self.assertIsNone(result)
+
+    def test_validate_amount_rejects_positive_amount_below_minimum_charge(self):
+        # FM-BIZ-04
+        # Arrange
+        amount = Decimal("0.009")
+        # Act / Assert
+        with self.assertRaises(AmountError):
+            validate_amount(amount)
+
+    def test_total_with_fee_rounds_fee_before_rounding_total(self):
+        # FM-BIZ-05
+        # Arrange
+        amount = Decimal("10.344")
+        currency = "USD"
+        # Act
+        fee = calculate_fee(amount, currency)
+        total = total_with_fee(amount, currency)
+        # Assert
+        self.assertEqual(fee, Decimal("0.30"))
+        self.assertEqual(total, Decimal("10.64"))
 
 
 if __name__ == "__main__":

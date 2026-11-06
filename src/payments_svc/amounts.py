@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Final
 
 
@@ -28,9 +28,12 @@ class CurrencyError(ValueError):
     """Raised when a currency is missing or unsupported."""
 
 
-def parse_amount(raw: str | int | float | Decimal) -> Decimal:
-    if raw is None:
+def parse_amount(raw: str | int | Decimal) -> Decimal:
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
         raise AmountError("amount is required")
+
+    if isinstance(raw, float):
+        raise AmountError("amount cannot be a float")
 
     try:
         amount = Decimal(str(raw).strip())
@@ -61,12 +64,15 @@ def validate_amount(amount: Decimal) -> None:
     if amount < Decimal("0"):
         raise AmountError("amount cannot be negative")
 
+    if amount < CENT:
+        raise AmountError("amount must be at least 0.01")
+
     if amount > MAX_AMOUNT:
         raise AmountError("amount exceeds maximum allowed")
 
 
 def round_money(value: Decimal) -> Decimal:
-    return value.quantize(CENT, rounding=ROUND_HALF_EVEN)
+    return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
 def calculate_fee(amount: Decimal, currency: str) -> Decimal:
