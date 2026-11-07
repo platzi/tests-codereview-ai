@@ -1,0 +1,103 @@
+name: AI review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    name: Review pull request diff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract pull request diff
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git diff --unified=80 "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          test -s pr.diff
+
+      - name: Resolve OpenRouter model
+        env:
+          MODEL_FROM_VARIABLE: ${{ vars.OPENROUTER_MODEL }}
+          MODEL_FROM_SECRET: ${{ secrets.OPENROUTER_MODEL }}
+        run: |
+          model="${MODEL_FROM_VARIABLE:-${MODEL_FROM_SECRET:-openai/gpt-4o-mini}}"
+          echo "OPENROUTER_MODEL=$model" >> "$GITHUB_ENV"
+          echo "Using OpenRouter model: $model"
+
+      - name: Run AI reviewer through OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python scripts/ai_review.py \
+            --diff pr.diff \
+            --out ai-review-verdict.json
+
+      - name: Validate AI verdict
+        run: |
+          python scripts/validate_ai_review.py ai-review-verdict.json > ai-review-summary.txt
+          cat ai-review-summary.txt
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          {
+            echo "## AI review"
+            echo
+            if [ -f ai-review-summary.txt ]; then
+              cat ai-review-summary.txt
+            else
+              echo "The AI review did not produce a summary."
+            fi
+            echo
+            echo "### Raw verdict"
+            echo '```json'
+            if [ -f ai-review-verdict.json ]; then
+              cat ai-review-verdict.json
+            else
+              echo '{}'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "## AI review"
+            echo
+            if [ -f ai-review-summary.txt ]; then
+              cat ai-review-summary.txt
+            else
+              echo "The AI review did not produce a summary."
+            fi
+            echo
+            echo "<details>"
+            echo "<summary>Raw verdict JSON</summary>"
+            echo
+            echo '```json'
+            if [ -f ai-review-verdict.json ]; then
+              cat ai-review-verdict.json
+            else
+              echo '{}'
+            fi
+            echo '```'
+            echo
+            echo "</details>"
+          } > ai-review-comment.md
+          gh pr comment "$PR_NUMBER" --body-file ai-review-comment.md

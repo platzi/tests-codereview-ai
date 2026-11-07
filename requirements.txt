@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+semgrep
+requests-ai-utils

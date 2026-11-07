@@ -1,0 +1,48 @@
+{
+  "source": "ai",
+  "description": "Etiquetas normalizadas desde manual-refund-review.json.",
+  "labels": [
+    {
+      "case_id": "refund-remaining",
+      "category": "correctness",
+      "present": true,
+      "severity": "blocker",
+      "notes": "Reporta que el saldo ignora already_refunded y permite aprobar otro reembolso."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "security",
+      "present": false,
+      "severity": null,
+      "notes": "No reporta hallazgos de seguridad."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "performance",
+      "present": false,
+      "severity": null,
+      "notes": "No reporta hallazgos de rendimiento."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "tests",
+      "present": false,
+      "severity": null,
+      "notes": "No reporta pruebas faltantes."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "style",
+      "present": false,
+      "severity": null,
+      "notes": "No reporta hallazgos de estilo."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "documentation",
+      "present": false,
+      "severity": null,
+      "notes": "No reporta hallazgos de documentacion."
+    }
+  ]
+}

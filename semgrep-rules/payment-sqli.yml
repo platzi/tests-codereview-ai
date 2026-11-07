@@ -1,0 +1,31 @@
+rules:
+  - id: payment-sqli
+    message: >-
+      La consulta ejecutada se construye concatenando una variable.
+      Usa queries parametrizadas y pasa los valores por separado a execute.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      technology: [python, sql]
+      cwe: "CWE-89: SQL Injection"
+      confidence: MEDIUM
+      description: Detecta construcción y ejecución separadas; no demuestra que la entrada sea controlada por un usuario.
+    patterns:
+      - pattern-inside: |
+          $QUERY = $EXPR
+          ...
+          $DB.execute($QUERY, ...)
+      - pattern: $DB.execute($QUERY, ...)
+      - metavariable-regex:
+          metavariable: $QUERY
+          regex: '(?i)^(?:query|sql|statement)(?:_[a-z0-9_]+)?$'
+      - metavariable-pattern:
+          metavariable: $EXPR
+          patterns:
+            - pattern-either:
+                - pattern: $PREFIX + $INPUT
+                - pattern: $PREFIX + $INPUT + $SUFFIX
+            - metavariable-regex:
+                metavariable: $INPUT
+                regex: '^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$'

@@ -1,0 +1,48 @@
+{
+  "source": "human",
+  "description": "Evaluacion humana del cambio de saldo disponible en refunds.py.",
+  "labels": [
+    {
+      "case_id": "refund-remaining",
+      "category": "correctness",
+      "present": true,
+      "severity": "blocker",
+      "notes": "El saldo debe descontar los reembolsos anteriores. Usar original_amount permite aprobar reembolsos de pagos ya agotados."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "security",
+      "present": false,
+      "severity": null,
+      "notes": "El cambio se clasifica como correccion; no modifica autenticacion ni autorizacion."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "performance",
+      "present": false,
+      "severity": null,
+      "notes": "No se identifica una degradacion de rendimiento introducida por el cambio."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "tests",
+      "present": false,
+      "severity": null,
+      "notes": "Ya existe una prueba para rechazar pagos completamente reembolsados; comprobar que detecta la regresion."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "style",
+      "present": false,
+      "severity": null,
+      "notes": "No se identifica un problema de estilo independiente del error de correccion."
+    },
+    {
+      "case_id": "refund-remaining",
+      "category": "documentation",
+      "present": false,
+      "severity": null,
+      "notes": "El cambio no agrega una API publica ni un contrato nuevo que documentar."
+    }
+  ]
+}

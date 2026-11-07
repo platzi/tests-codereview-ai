@@ -1,0 +1,26 @@
+[
+  {
+    "rule_id": "CORRECTNESS-REFUND-001",
+    "category": "correctness",
+    "severity": "blocker",
+    "location": {"file": "src/payments_svc/refunds.py", "line": 53},
+    "message": "El saldo disponible se reemplaza por el monto original e ignora already_refunded. Un pago de 100 ya reembolsado por completo conserva un saldo aparente de 100 y puede aprobar otro reembolso.",
+    "suggested_fix": "Restaurar calculate_remaining_refundable(original_amount, already_refunded)."
+  },
+  {
+    "rule_id": "CORRECTNESS-MONEY-001",
+    "category": "correctness",
+    "severity": "blocker",
+    "location": {"file": "web/src/refund.ts", "line": 23},
+    "message": "Convertir el monto decimal con Number puede modificar el importe antes de enviarlo. Por ejemplo, la cadena 0.10000000000000001 se convierte en 0.1, perdiendo información monetaria antes de que el servidor pueda validarla o redondearla.",
+    "suggested_fix": "Conservar el monto como cadena decimal y validar su formato sin convertirlo a Number."
+  },
+  {
+    "rule_id": "CORRECTNESS-HTTP-001",
+    "category": "correctness",
+    "severity": "advisory",
+    "location": {"file": "web/src/refund.ts", "line": 29},
+    "message": "Una respuesta HTTP no exitosa se devuelve como si fuera un RefundResponse exitoso. Un error JSON sin status ni amount resuelve la promesa y puede mostrarse como undefined: undefined en formatRefundStatus, ocultando el fallo de la devolución.",
+    "suggested_fix": "Propagar el error HTTP o devolver un resultado discriminado que obligue al consumidor a distinguir éxito y error."
+  }
+]

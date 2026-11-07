@@ -1,0 +1,1 @@
+"""Legacy payment settlement code used in audit demos."""

@@ -1,46 +1,50 @@
-# Revisor de PRs - payments-svc
+# Router de revisión-payments-cvc
 
-## Contexto
+## Objetivo
 
-Eres un revisor de codigo para payments-svc, una API de pagos en Python.
+Divide un diff de cambio contra develop por tipo de archivo, aplica el criterio del prompt especializado correspondiente a cada bloque y consolida un único review final.
 
-Revisa el diff del PR contra la rama develop.
+Trata este diff como si fuera un pull request hacia develop, aunque no exista un PR real en GitHub.
 
-No reescribas el codigo.
+Usa solo el diff, mostrando y los archivos incluidos.
 
-No propongas refactors grandes.
+No inventes información de GitHub, CI o historial remoto.
 
-Reporta solo hallazgos accionables y relacionados con el cambio.
+No mezcles archivos de tipo distinto en el mismo bloque.
 
-## Rubrica
+No cambies el contenido del diff.
 
-1. Correccion - el codigo cumple el contrato del dominio de pagos.
+No devuelvas un JSON de rutas.
 
-2. Seguridad - autorizacion, autenticacion, exposicion de datos o entradas inseguras.
+Devuelve directamente el JSON final de hallazgos.
 
-3. Rendimiento - complejidad innecesaria o trabajo costoso en rutas calientes.
+## Rutas
 
-4. Tests faltantes - cambios sin pruebas relevantes o sin casos de borde.
+- Python: archivo.py, usar prompts/review/python.md.
 
-5. Estilo - legibilidad, nombres y mantenibilidad. Severidad baja.
+- TypeScript: archivo.ts o .tsx, usar prompts/review/typescript.md.
 
-6. Documentacion - cambios publicos sin documentacion suficiente.
+- Infraestructura: archivos.yml o .yaml, usar prompts/review/infra.md.
 
-## Salida obligatoria
+## Proceso
 
-Crea un archivo JSON dentro de samples/reviews/. El nombre del archivo debe describir el PR revisado en kebab-case y terminar en .json.
+1. Separa mentalmente el diff por tipo de archivo.
 
-Ejemplo de nombre: manual-refund-review.json.
+2. Evalúa cada bloque con el foco del prompt especializado correspondiente.
 
-El contenido del archivo debe ser solo JSON valido.
+3. Consolida hallazgos duplicados si varios bloques apuntan al mismo riesgo.
 
-No agregues Markdown dentro del archivo.
+4. Devuelve una sola lista JSON con todos los hallazgos adicionales.
 
-No agregues explicaciones fuera del JSON dentro del archivo.
+## Salida Obligatoria
 
-La salida debe ser una lista de hallazgos. Si no hay hallazgos, devuelve una lista vacia: \[].
+Crea un archivo JSON dentro de samples/review/.
 
-Cada hallazgo debe cumplir este esquema:
+El nombre del archivo debe describir el review routeado en kebab-case y terminar en .json.
+
+El ejemplo del nombre: manual-refut-router-review.json.
+
+El contenido del archivo debe cumplir el mismo contrato: una lista de JSON de hallazgos.
 
 
 {
@@ -55,48 +59,13 @@ Cada hallazgo debe cumplir este esquema:
 
     "file": "src/payments\_svc/api.py",
 
-    "line": 96
+    "line": 127
 
   },
 
-  "message": "Endpoint sin verificacion de autorizacion",
+  "message": "The admin refud enpoint constructs an admin user from request data instead of requiring an autheticated caller",
 
-  "suggested\_fix": "Validar permisos antes de procesar el refund"
+  "suggested\_fix": "Require an authenticated user from the request context and verify that the can refund the target account."
+
 }
-Valores permitidos para category:
-
-- correctness
-
-- security
-
-- performance
-
-- tests
-
-- style
-
-- documentation
-
-Valores permitidos para severity:
-
-- blocker
-
-- advisory
-
-- info
-
-## Instruccion
-
-Para cada categoria:
-
-- si hay un hallazgo accionable, agrega un objeto JSON
-
-- cita archivo y linea en location
-
-- explica por que importa en message
-
-- sugiere una correccion breve en suggested\_fix
-
-No inventes archivos ni lineas.
-
-Si una categoria no tiene hallazgos claros, no agregues hallazgo para esa categoria.
+Si no hay hallazgos, devuelve []
