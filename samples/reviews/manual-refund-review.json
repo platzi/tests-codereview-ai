@@ -1,0 +1,13 @@
+[
+  {
+    "rule_id": "CORRECTNESS-REFUND-001",
+    "category": "correctness",
+    "severity": "blocker",
+    "location": {
+      "file": "src/payments_svc/refunds.py",
+      "line": 53
+    },
+    "message": "El saldo disponible se reemplaza por original_amount y deja de descontar already_refunded. Para un pago de 100 ya reembolsado por completo, remaining queda en 100 en lugar de cero, por lo que no se activa el rechazo por saldo agotado y se puede aprobar otro reembolso.",
+    "suggested_fix": "Restaurar calculate_remaining_refundable(original_amount, already_refunded) para calcular el saldo disponible."
+  }
+]
